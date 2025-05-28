@@ -3,9 +3,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 import math
+import folium
+from folium.plugins import HeatMap # For density-based shading
+import branca.colormap as cm # Kept, though not used in the final map type, good for other color scales if needed
 
 # Load the CSV file
-file_path = 'supply_chain_delay_new.csv'
+file_path = 'supply_chain_data.csv'
 df = pd.read_csv(file_path)
 
 # Drop null values
@@ -41,6 +44,22 @@ plt.tight_layout()
 pdf.savefig()
 plt.close()
 
+# --- KDE Plots (Added) ---
+# Kernel Density Estimate plots for numerical distributions
+cols = 4
+rows = math.ceil(len(numerical_cols) / cols)
+fig, axs = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
+axs = axs.flatten()
+for i, col in enumerate(numerical_cols):
+    sns.kdeplot(df[col], ax=axs[i], fill=True)
+    axs[i].set_title(f'KDE of {col}')
+for j in range(i + 1, len(axs)):
+    axs[j].axis('off')
+plt.tight_layout()
+pdf.savefig()
+plt.close()
+
+
 # --- Line Plot (Revenue Generated) ---
 if 'Revenue generated' in df.columns:
     plt.figure(figsize=(10, 6))
@@ -61,14 +80,19 @@ plt.tight_layout()
 pdf.savefig()
 plt.close()
 
-# --- Violin Plot ---
-if 'Inspection results' in df.columns and 'Defect rates' in df.columns:
+# --- Violin Plot (added with Product type and Defect rates) ---
+# Using 'Product type' as the categorical column and 'Defect rates' as the numerical column.
+if 'Product type' in df.columns and 'Defect rates' in df.columns:
     plt.figure(figsize=(10, 6))
-    sns.violinplot(x='Inspection results', y='Defect rates', data=df)
-    plt.title("Violin Plot of Defect Rates by Inspection Results")
+    sns.violinplot(x='Product type', y='Defect rates', data=df)
+    plt.title("Violin Plot of Defect Rates by Product Type")
+    plt.xticks(rotation=45, ha='right') # Rotate labels for better readability
     plt.tight_layout()
     pdf.savefig()
     plt.close()
+else:
+    print("Skipping Violin Plot: 'Product type' or 'Defect rates' columns not found.")
+
 
 # --- Frequency Counts (Categorical Columns) ---
 for col in categorical_cols:
@@ -97,10 +121,11 @@ for (col1, col2) in top_pairs.index:
         if count >= 5:  # Limit to top 5 pairs
             break
 
-# --- Pairplot ---
-sns.pairplot(df[numerical_cols].sample(n=min(100, len(df)) if len(df) > 1 else 1))
+# --- Pairplot 
+sns.pairplot(df[numerical_cols].sample(n=min(500, len(df)) if len(df) > 1 else 1)) # Sample up to 500 rows for performance
 pdf.savefig()
 plt.close()
+
 
 # --- Grouped Analysis ---
 grouping_cols = ['Shipping mode', 'Product category', 'Customer segment']
@@ -135,6 +160,36 @@ if 'Product name' in df.columns and 'Revenue generated' in df.columns:
     pdf.savefig()
     plt.close()
 
+# --- Map Visualization (Folium for HTML with Heatmap ) ---
+if 'Latitude' in df.columns and 'Longitude' in df.columns and 'Revenue generated' in df.columns:
+    # Filter out rows with missing lat/lon for mapping
+    df_map = df.dropna(subset=['Latitude', 'Longitude']).copy()
+
+    if not df_map.empty:
+        # Calculate initial map center
+        mean_lat = df_map['Latitude'].mean()
+        mean_lon = df_map['Longitude'].mean()
+
+        supply_chain_map = folium.Map(location=[mean_lat, mean_lon], zoom_start=4)
+
+        # Create Heatmap layer
+        heatmap_data = [[row['Latitude'], row['Longitude'], row['Revenue generated']] for index, row in df_map.iterrows() if pd.notna(row['Latitude']) and pd.notna(row['Longitude'])]
+        HeatMap(heatmap_data).add_to(supply_chain_map)
+
+        # Save the Folium map as an HTML file
+        map_html_path = "supply_chain_heatmap.html"
+        supply_chain_map.save(map_html_path)
+        print(f"✅ Interactive heatmap saved to '{map_html_path}'")
+
+    else:
+        print("Skipping map generation: No valid Latitude/Longitude data after dropping NaNs.")
+
+
+else:
+    print("Skipping map generation: 'Latitude', 'Longitude', or 'Revenue generated' columns not found.")
+
+
 # Save the PDF
 pdf.close()
 print("✅ PDF 'supply_chain_analysis_graphs.pdf' created with all visualizations.")
+
